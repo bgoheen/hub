@@ -208,7 +208,7 @@ td.b{font-weight:600}td.r,th.r{text-align:right}td.m{color:var(--ink2)}
   <main>
     <div class="topline">
       <div class="date" id="today"></div>
-      <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" aria-label="Search" placeholder="Search contacts and properties" autocomplete="off"></label>
+      <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" aria-label="Search" placeholder="Search contacts and properties" autocomplete="off"></label>
     </div>
     <div class="banner" id="banner"></div>
     <div id="view"></div>
@@ -425,7 +425,8 @@ const isOpen=p=>p.status!=="Closed"&&p.status!=="Dead";
 function nextDeadline(p){if(!isOpen(p))return null;let best=null;for(const [k,l] of DEADLINES){const v=p[k];if(!v)continue;if(diff(v)<-1&&k!=="closing")continue;if(!best||v<best.date)best={date:v,label:l}}return best}
 const gci=p=>(Number(p.price)||0)*((Number(p.commissionPct)||0)/100);
 function nextOccur(iso){if(!iso)return null;const [,m,d]=iso.split("-");const y=new Date().getFullYear();let c=y+"-"+m+"-"+d;if(c<today())c=(y+1)+"-"+m+"-"+d;return c}
-function matches(o,fields){if(!query)return true;const q=query.toLowerCase();return fields.some(f=>String(o[f]||"").toLowerCase().includes(q))}
+function matches(o,fields){if(!query)return true;const q=query.toLowerCase();const qd=q.replace(/\D/g,"");
+  return q.split(/\s+/).filter(Boolean).every(w=>fields.some(f=>String(o[f]||"").toLowerCase().includes(w)))||(qd.length>=3&&String(o.phone||"").replace(/\D/g,"").includes(qd))}
 const clientName=p=>(contactById(p.clientId)||{}).name||"";
 function progHtml(p){const cl=p.checklist||[];if(!cl.length)return '<span style="font-size:12.5px;color:var(--muted)">No checklist</span>';const d=cl.filter(t=>t.done).length;return `<div class="prog"><div class="bar"><i style="width:${Math.round(d/cl.length*100)}%"></i></div><span>${d} of ${cl.length}</span></div>`}
 const laneTag=c=>onFarm(c)?`<span class="lane">${dot(LANES[c.lane].color)}${LANES[c.lane].label}</span>`:"";
@@ -436,7 +437,7 @@ function render(){
   document.querySelectorAll("[data-nav]").forEach(a=>a.classList.toggle("on",a.dataset.nav===view));
   $("#today").textContent=new Date().toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
   if(map){map.remove();map=null}
-  $("#view").innerHTML=({dashboard:dash,contacts:contactsView,properties:propsView,pipeline:pipeView,checklists:checklistView,postcards:postcardView}[view]||dash)();
+  $("#view").innerHTML=(query&&(view==="dashboard"||view==="checklists"))?searchView():({dashboard:dash,contacts:contactsView,properties:propsView,pipeline:pipeView,checklists:checklistView,postcards:postcardView}[view]||dash)();
   if(view==="postcards")initMap();
   renderSync();
 }
@@ -482,6 +483,14 @@ function dash(){
     <section><div class="sh"><h2>${mname} postcards</h2><a class="link" href="#postcards">${left} left to send</a></div>${pcRows}</section></div></div>`;
 }
 
+function searchView(){
+  const cs=state.contacts.filter(c=>matches({...c,full:fullAddress(c)},["name","email","phone","full","partner","notes","source","referredBy","stage"])).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  const ps=state.properties.filter(p=>matches({...p,client:clientName(p)},["address","city","client","mls","notes","status"]));
+  const cRows=cs.map(c=>`<div class="row click" data-edit="contacts:${esc(c.id)}">${dot(DOT[c.stage]||"#9aa3b0")}<div class="grow"><div class="t">${esc(c.name)}</div><div class="s">${esc([c.stage,c.phone,c.email,fullAddress(c)].filter(Boolean).join(" · "))}</div></div>${laneTag(c)}</div>`).join("");
+  const pRows=ps.map(p=>`<div class="row click" data-edit="properties:${esc(p.id)}">${dot(DOT[p.status]||"#9aa3b0")}<div class="grow"><div class="t">${esc(p.address)}</div><div class="s">${esc([p.status,clientName(p),money(p.price)].filter(Boolean).join(" · "))}</div></div></div>`).join("");
+  return `<div class="stack"><section><div class="sh"><h2>Contacts</h2><span class="meta">${cs.length} match${cs.length===1?"":"es"} for “${esc(query)}”</span></div>${cRows||'<div class="empty">No contacts match.</div>'}</section>
+    <section><div class="sh"><h2>Properties</h2><span class="meta">${ps.length} match${ps.length===1?"":"es"}</span></div>${pRows||'<div class="empty">No properties match.</div>'}</section></div>`;
+}
 function contactsView(){
   const C=state.contacts;
   const list=C.filter(c=>(cTab==="All"||c.stage===cTab)&&(cType==="All"||c.type===cType)&&matches({...c,full:fullAddress(c)},["name","email","phone","full","partner","notes","source","referredBy"]))
@@ -703,6 +712,7 @@ document.addEventListener("click",e=>{
   if(t.dataset.ptab){pTab=t.dataset.ptab;render();return}
   if(t.dataset.stage){cTab=t.dataset.stage;location.hash="contacts";return}
 });
+document.addEventListener("search",e=>{if(e.target.id==="q"){query=e.target.value.trim();render()}},true);
 document.addEventListener("change",e=>{
   const t=e.target;
   if(t.id==="ctype"){cType=t.value;render();return}
@@ -716,6 +726,7 @@ document.addEventListener("input",e=>{
   if(editing&&editing.col==="properties"&&(e.target.name==="price"||e.target.name==="commissionPct")){const g=$("#gci");if(g)g.textContent=money((num($("#f_price").value)||0)*((num($("#f_commissionPct").value)||0)/100))||"$0"}
 });
 document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"&&e.target.id==="q"){e.target.value="";query="";render();return}
   if(e.key==="Escape"&&editing&&!document.querySelector(".pac-container[style*='display: block']")){closeForm();return}
   if(e.key==="Enter"&&e.target.id==="newTask"){e.preventDefault();document.querySelector('[data-act="addTask"]').click()}
   if(e.key==="Enter"&&e.target.id==="logNote"){e.preventDefault();document.querySelector('[data-act="addLog"]').click()}
