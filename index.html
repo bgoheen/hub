@@ -232,6 +232,8 @@ td.b{font-weight:600}td.r,th.r{text-align:right}td.m{color:var(--ink2)}
 "use strict";
 const APP_REDIRECT_URI='https://bgoheen.github.io/hub';   // must be registered in Azure
 const HUB_PATH='RealEstateHub/hub_data.json';
+const DIGEST_PATH='RealEstateHub/reminder_digest.json';   // read by the Make daily email
+let lastDigest='';
 const OLD_POSTCARD_PATH='RealEstateContacts/contacts_data.json';
 const LOCAL_KEY='re_hub_v1';
 
@@ -329,7 +331,7 @@ async function loadFromOneDrive(){
   if(sync.pending||sync.saving)return;   // never pull over unsaved edits
   try{
     const r=await gfetch(HUB_PATH);
-    if(r.ok){const j=await r.json();state.contacts=(j.contacts||[]).map(normContact);state.properties=j.properties||[];sync.loaded=true;sync.error=null;saveLocal();render();return}
+    if(r.ok){const j=await r.json();state.contacts=(j.contacts||[]).map(normContact);state.properties=j.properties||[];sync.loaded=true;sync.error=null;saveLocal();render();writeDigest();return}
     if(r.status===404){
       // First run: start from whatever is on this device, then pull in the old postcard list.
       sync.loaded=true;const imported=await importPostcards();
@@ -355,6 +357,7 @@ async function importPostcards(){
     return n;
   }catch(e){return 0}
 }
+async function writeDigest(){try{const dg=JSON.stringify(buildDigest());if(dg!==lastDigest){const r2=await gfetch(DIGEST_PATH,{method:"PUT",headers:{"Content-Type":"application/json"},body:dg});if(r2.ok)lastDigest=dg}}catch(_){}}
 let saveTimer=null;
 function persist(){saveLocal();if(!sync.signedIn){renderSync();return}sync.pending=true;renderSync();clearTimeout(saveTimer);saveTimer=setTimeout(flush,700)}
 async function flush(){
@@ -366,6 +369,7 @@ async function flush(){
     const r=await gfetch(HUB_PATH,{method:"PUT",headers:{"Content-Type":"application/json"},body});
     if(!r.ok)throw new Error(r.status);
     sync.lastSaved=new Date();sync.error=null;
+    writeDigest();
   }catch(e){sync.error="Not saved to OneDrive yet. Will retry.";sync.pending=true;clearTimeout(saveTimer);saveTimer=setTimeout(flush,8000)}
   sync.saving=false;renderSync();
 }
@@ -464,6 +468,76 @@ function render(){
   renderSync();
 }
 
+
+/* ---------- reminders ---------- */
+const REM_AHEAD=14, REM_GRACE=7, DIGEST_DAYS=45;
+const dayDiff=(iso,asOf)=>Math.round((parse(iso)-parse(asOf))/86400000);
+const firstName=n=>String(n||"").trim().split(/\s+/)[0]||"";
+function dateEvents(c){
+  const out=[];
+  const single=!String(c.name||"").includes("&");
+  if(c.birthday)out.push({k:"birthday",v:c.birthday,label:(c.partner&&single?firstName(c.name)+"'s birthday":"Birthday"),icon:"cake",who:"main"});
+  if(c.partnerBirthday)out.push({k:"partnerBirthday",v:c.partnerBirthday,label:(firstName(c.partner)||"Partner")+"'s birthday",icon:"cake",who:"partner"});
+  if(c.homeAnniversary)out.push({k:"homeAnniversary",v:c.homeAnniversary,label:"Home anniversary",icon:"home",who:"main"});
+  if(c.anniversary)out.push({k:"anniversary",v:c.anniversary,label:"Anniversary",icon:"heart",who:"main"});
+  return out;
+}
+function remindersAsOf(asOf){
+  const y=Number(asOf.slice(0,4));const items=[];
+  state.contacts.forEach(c=>{
+    dateEvents(c).forEach(ev=>{
+      const [m,d]=mdParts(ev.v);if(!m||!d)return;
+      [y-1,y,y+1].forEach(Y=>{
+        const date=Y+"-"+m+"-"+d;const dd=dayDiff(date,asOf);
+        if(dd>REM_AHEAD||dd< -REM_GRACE)return;
+        if(c.done&&c.done[ev.k+"-"+Y])return;
+        let label=ev.label;
+        if(ev.k==="homeAnniversary"&&String(ev.v).split("-").length===3){const yrs=Y-Number(String(ev.v).slice(0,4));if(yrs>0)label=yrs+(yrs===1?" year":" years")+" in their home"}
+        items.push({kind:"date",c,ev,key:ev.k+"-"+Y,date,dd,label,icon:ev.icon});
+      });
+    });
+    if(c.nextFollowUp){const dd=dayDiff(c.nextFollowUp,asOf);if(dd<=REM_AHEAD){
+      const ll=(c.log||[])[0];
+      items.push({kind:"followup",c,date:c.nextFollowUp,dd,label:"Follow-up"+(ll?" · last "+ll.type.toLowerCase()+" "+fmt(ll.d):(c.lastContact?" · last talked "+fmt(c.lastContact):"")),icon:"phone"});
+    }}
+  });
+  items.sort((a,b)=>a.dd-b.dd||String(a.c.name).localeCompare(String(b.c.name)));
+  return {over:items.filter(i=>i.dd<0),today:items.filter(i=>i.dd===0),soon:items.filter(i=>i.dd>0)};
+}
+const ICONS={cake:'<path d="M3 20h18M5 20v-7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v7M12 11V8M12 5.5c.8-.8.8-1.8 0-2.5-.8.7-.8 1.7 0 2.5z"/>',home:'<path d="M3 10.5 12 3l9 7.5M5 9v12h14V9"/>',heart:'<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',phone:'<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>'};
+const icon=(n,col)=>`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${col}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none">${ICONS[n]||""}</svg>`;
+function remRow(it,grp){
+  const c=it.c;const col=grp==="over"?"#b23b2e":grp==="today"?"#c98a1b":"#8a93a0";
+  const usePartner=it.kind==="date"&&it.ev.who==="partner"&&(c.partnerPhone||c.partnerEmail);
+  const ph=usePartner?c.partnerPhone:c.phone,em=usePartner?c.partnerEmail:c.email;
+  const when=grp==="over"?`<span class="when over">${-it.dd===1?"1 day":(-it.dd)+" days"} late</span>`:grp==="today"?`<span class="when soon">Today</span>`:`<span class="when ok">${it.kind==="date"?mdText(it.date):fmt(it.date)}</span>`;
+  const reach=[ph?`<a class="link" href="sms:${esc(telHref(ph))}">Text</a>`:"",ph?`<a class="link" href="tel:${esc(telHref(ph))}">Call</a>`:"",em?`<a class="link" href="mailto:${esc(em)}">Email</a>`:""].filter(Boolean).join("");
+  const doneBtn=it.kind==="followup"?`<button class="link" data-log="${esc(c.id)}">Log</button>`:`<button class="link" data-rdone="${esc(c.id)}|${esc(it.key)}|${esc(it.label)}">Done</button>`;
+  return `<div class="row click" data-edit="contacts:${esc(c.id)}">${icon(it.icon,col)}<div class="grow"><div class="t">${esc(household(c))}</div><div class="s">${esc(it.label)}</div></div>${when}<span style="display:flex;gap:12px">${grp==="soon"?"":reach}${doneBtn}</span></div>`;
+}
+function remindersHtml(){
+  const r=remindersAsOf(today());
+  const grp=(t,list,g,color)=>list.length?`<div class="cond" style="font-size:12.5px;font-weight:600;color:${color};margin:16px 0 2px">${t} · ${list.length}</div>${list.map(i=>remRow(i,g)).join("")}`:"";
+  const body=grp("Overdue",r.over,"over","var(--red)")+grp("Today",r.today,"today","var(--amber)")+grp("Next 2 weeks",r.soon,"soon","var(--muted)");
+  return body||`<div class="empty">Nothing due in the next two weeks. Birthdays, anniversaries and follow-up schedules on your contacts show up here.</div>`;
+}
+/* the emailed digest: one ready-made message per day, read by the Make scenario */
+function buildDigest(){
+  const days={};const start=today();
+  for(let i=0;i<DIGEST_DAYS;i++){
+    const day=addDays(start,i);const r=remindersAsOf(day);
+    const n=r.over.length+r.today.length;
+    const line=(it,g)=>{const when=g==="over"?(-it.dd)+(it.dd===-1?" day":" days")+" late":g==="today"?"today":(it.kind==="date"?mdText(it.date):fmt(it.date));
+      const ph=it.kind==="date"&&it.ev.who==="partner"&&it.c.partnerPhone?it.c.partnerPhone:it.c.phone;
+      return `<tr><td style="padding:6px 12px 6px 0"><b>${esc(household(it.c))}</b><br><span style="color:#5d6878">${esc(it.label)}${ph?" · "+esc(formatPhone(ph)):""}</span></td><td style="padding:6px 0;white-space:nowrap;color:${g==="over"?"#b23b2e":g==="today"?"#8a6413":"#5d6878"};vertical-align:top">${esc(when)}</td></tr>`};
+    const sec=(t,list,g)=>list.length?`<h3 style="font:600 13px Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;color:#37557c;margin:18px 0 4px">${t}</h3><table style="font:14px Arial,sans-serif;border-collapse:collapse">${list.map(i=>line(i,g)).join("")}</table>`:"";
+    const html=`<div style="font:14px Arial,sans-serif;color:#1a2433">${sec("Overdue",r.over,"over")}${sec("Today",r.today,"today")}${sec("Coming up",r.soon.filter(i=>i.dd<=7),"soon")}<p style="margin-top:20px"><a href="https://bgoheen.github.io/hub" style="color:#003c71">Open the hub</a></p></div>`;
+    const parts=[r.over.length?r.over.length+" overdue":"",r.today.length?r.today.length+" today":""].filter(Boolean).join(", ");
+    days[day]={due:n,subject:"Hub reminders: "+(parts||"nothing due"),html};
+  }
+  return {app:"Real Estate Hub",generated:new Date().toISOString(),note:"Built by the hub on each save; Make reads days[today].",days};
+}
+
 function dash(){
   const C=state.contacts,P=state.properties;
   const open=P.filter(isOpen),uc=P.filter(p=>p.status==="Under Contract");
@@ -475,8 +549,9 @@ function dash(){
   const occ=[];C.forEach(c=>{[["birthday","Birthday"],["partnerBirthday","P"],["anniversary","Anniversary"],["homeAnniversary","Home anniversary"]].forEach(([k,l])=>{const n=nextOccur(c[k]);if(n&&diff(n)<=30)occ.push({c,l:k==="homeAnniversary"&&String(c[k]).split("-").length===3?((Number(n.slice(0,4))-Number(String(c[k]).slice(0,4)))+" years in their home"):l==="P"?((String(c.partner||"Partner").split(/\s+/)[0])+"'s birthday"):(l==="Birthday"&&c.partner&&!String(c.name).includes("&")?String(c.name).split(/\s+/)[0]+"'s birthday":l),n})})});
   occ.sort((a,b)=>a.n.localeCompare(b.n));
   const sc=s=>C.filter(c=>c.stage===s).length;
+  const R=remindersAsOf(today());const remDue=R.over.length+R.today.length,remSoon=R.soon.length;
   const kpis=`<section class="kpis">
-    <div class="kpi"><div class="k">Follow-ups due</div><div class="v ${due.length?"alert":""}">${due.length}</div><div class="n">${fu.length} in the next 7 days</div></div>
+    <div class="kpi"><div class="k">Reminders due</div><div class="v ${remDue?"alert":""}">${remDue}</div><div class="n">${remSoon} in the next 2 weeks</div></div>
     <div class="kpi"><div class="k">Contacts</div><div class="v">${C.length}</div><div class="n">${sc("Active")+sc("Under Contract")} active clients</div></div>
     <div class="kpi"><div class="k">Open deals</div><div class="v">${open.length}</div><div class="n">${kmoney(open.reduce((s,p)=>s+(+p.price||0),0))} volume</div></div>
     <div class="kpi"><div class="k">Under contract</div><div class="v">${kmoney(uc.reduce((s,p)=>s+(+p.price||0),0))}</div><div class="n">${uc.length} deal${uc.length===1?"":"s"}</div></div>
@@ -497,11 +572,10 @@ function dash(){
   const pcRows=[1,2,3].map(l=>{const pl=C.filter(c=>c.lane===l&&plannedThisMonth(c));const s=pl.filter(c=>sentIn(c,mk)).length;return `<div class="row click" data-pclane="${l}">${dot(LANES[l].color)}<div class="grow"><div class="t" style="font-weight:500">${LANES[l].label}</div></div><span style="font-variant-numeric:tabular-nums;color:var(--ink2)">${s} of ${pl.length} sent</span></div>`}).join("");
   const left=C.filter(needsCard).length;
   return `<div class="stack">${kpis}
-    <div class="cols2"><section><div class="sh"><h2>Follow-ups</h2><span class="meta">Next 7 days</span></div>${fuHtml}</section>
+    <div class="cols2"><section><div class="sh"><h2>Reminders</h2><span class="meta">Follow-ups, birthdays and anniversaries</span></div>${remindersHtml()}</section>
     <section><div class="sh"><h2>Deadlines</h2><span class="meta">Next 3 weeks</span></div>${dlHtml}</section></div>
     <section><div class="sh"><h2>Deals</h2><a class="link" href="#pipeline">Open pipeline</a></div>${dealsHtml}</section>
-    <div class="cols3"><section><div class="sh"><h2>Coming up</h2><span class="meta">Next 30 days</span></div>${occHtml}</section>
-    <section><div class="sh"><h2>Contacts by stage</h2><a class="link" href="#contacts">All contacts</a></div>${stHtml}</section>
+    <div class="cols2"><section><div class="sh"><h2>Contacts by stage</h2><a class="link" href="#contacts">All contacts</a></div>${stHtml}</section>
     <section><div class="sh"><h2>${mname} postcards</h2><a class="link" href="#postcards">${left} left to send</a></div>${pcRows}</section></div></div>`;
 }
 
@@ -711,7 +785,7 @@ function refreshCl(){$("#clBox").innerHTML=checklistHtml(editing.rec)}
 /* ---------- events ---------- */
 document.addEventListener("click",e=>{
   if(e.target.closest('a[href^="mailto:"],a[href^="tel:"],a[href^="sms:"]'))return;
-  const t=e.target.closest("[data-act],[data-edit],[data-log],[data-ctab],[data-ptab],[data-stage],[data-mdel],[data-seed],[data-pc],[data-pcl],[data-pclane]");if(!t)return;
+  const t=e.target.closest("[data-act],[data-edit],[data-log],[data-rdone],[data-ctab],[data-ptab],[data-stage],[data-mdel],[data-seed],[data-pc],[data-pcl],[data-pclane]");if(!t)return;
   if(t.dataset.pc){const [cid,k]=t.dataset.pc.split("|");const c=contactById(cid);if(!c)return;const pc={...(c.postcards||{})};if(pc[k])delete pc[k];else pc[k]=true;c.postcards=pc;c.updatedAt=new Date().toISOString();persist();
     t.classList.toggle("sent",!!pc[k]);const months=rollingMonths(MONTHS_SHOWN).filter(m=>isPlanned(c,m.monthIndex));const ce=$("#cnt-"+CSS.escape(cid));if(ce)ce.textContent=months.filter(m=>pc[m.key]).length+"/"+months.length;
     const mk=activeMonthKey(),pl=state.contacts.filter(plannedThisMonth),s=pl.filter(x=>sentIn(x,mk)).length;if($("#pcLeft"))$("#pcLeft").textContent=pl.length-s;if($("#pcSent"))$("#pcSent").textContent=s+" of "+pl.length+" sent";
@@ -719,6 +793,9 @@ document.addEventListener("click",e=>{
   if(t.dataset.pcl){pcLane=t.dataset.pcl;render();return}
   if(t.dataset.pclane){pcLane=t.dataset.pclane;location.hash="postcards";return}
   if(t.dataset.log){e.stopPropagation();openLog(t.dataset.log);return}
+  if(t.dataset.rdone){e.stopPropagation();const [cid,key,label]=t.dataset.rdone.split("|");const c=contactById(cid);if(!c)return;
+    const done={...(c.done||{})};done[key]=today();const log=[{id:newId(),d:today(),type:"Note",note:label+": reached out"},...(c.log||[])];
+    patch("contacts",cid,{done,log});toast(label+" marked done");return}
   if(t.dataset.seed){const p=state.properties.find(x=>x.id===t.dataset.seed);if(p)patch("properties",p.id,{checklist:TEMPLATES[p.side==="Buyer"?"Buyer":"Seller"].map(x=>({t:x,done:false}))});return}
   if(t.matches("[data-mdel]")){e.preventDefault();editing.rec.checklist.splice(+t.dataset.mdel,1);refreshCl();liveSave({checklist:clone(editing.rec.checklist)});return}
   const a=t.dataset.act;
