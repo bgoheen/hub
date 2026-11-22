@@ -582,10 +582,10 @@ function initMap(){
 
 /* ---------- forms ---------- */
 const CFIELDS=[
-  ["Contact",[["name","Name","text",1],["phone","Phone","tel"],["email","Email","email"],["stage","Stage",STAGES],["type","Type",TYPES],["source","Source",SOURCES],["referredBy","Referred by","text"],["estPrice","Estimated price","money"],["addrFull","Address","addr",1]]],
+  ["Contact",[["name","Name","text",1],["phone","Phone","tel"],["email","Email","email"],["stage","Stage",STAGES],["type","Type",TYPES],["source","Source",SOURCES],["referredBy","Referred by","text"],["estPrice","Estimated price","money"],["birthday","Birthday","md"],["addrFull","Address","addr",1]]],
   ["Partner",[["partner","Name","text",1],["partnerPhone","Phone","tel"],["partnerEmail","Email","email"],["partnerBirthday","Birthday","md"]]],
   ["Follow-up",[["schedule","Follow-up schedule",Object.keys(SCHED)],["lastContact","Last contact","date"],["nextFollowUp","Next follow-up","date"]]],
-  ["Important dates",[["birthday","Birthday","md"],["anniversary","Anniversary","md"],["homeAnniversary","Home anniversary","md"]]],
+  ["Important dates",[["homeAnniversary","Home anniversary","md"],["anniversary","Anniversary","md"]]],
   ["Notes",[["notes","Notes","textarea",1]]]
 ];
 const PFIELDS=[
