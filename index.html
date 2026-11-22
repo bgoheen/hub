@@ -472,7 +472,7 @@ function dash(){
   const due=C.filter(c=>c.nextFollowUp&&diff(c.nextFollowUp)<=0);
   const fu=C.filter(c=>c.nextFollowUp&&diff(c.nextFollowUp)<=7).sort((a,b)=>a.nextFollowUp.localeCompare(b.nextFollowUp));
   const dls=open.map(p=>({p,d:nextDeadline(p)})).filter(x=>x.d&&diff(x.d.date)<=21).sort((a,b)=>a.d.date.localeCompare(b.d.date));
-  const occ=[];C.forEach(c=>{[["birthday","Birthday"],["partnerBirthday","P"],["anniversary","Anniversary"],["homeAnniversary","Home anniversary"]].forEach(([k,l])=>{const n=nextOccur(c[k]);if(n&&diff(n)<=30)occ.push({c,l:l==="P"?((String(c.partner||"Partner").split(/\s+/)[0])+"'s birthday"):(l==="Birthday"&&c.partner&&!String(c.name).includes("&")?String(c.name).split(/\s+/)[0]+"'s birthday":l),n})})});
+  const occ=[];C.forEach(c=>{[["birthday","Birthday"],["partnerBirthday","P"],["anniversary","Anniversary"],["homeAnniversary","Home anniversary"]].forEach(([k,l])=>{const n=nextOccur(c[k]);if(n&&diff(n)<=30)occ.push({c,l:k==="homeAnniversary"&&String(c[k]).split("-").length===3?((Number(n.slice(0,4))-Number(String(c[k]).slice(0,4)))+" years in their home"):l==="P"?((String(c.partner||"Partner").split(/\s+/)[0])+"'s birthday"):(l==="Birthday"&&c.partner&&!String(c.name).includes("&")?String(c.name).split(/\s+/)[0]+"'s birthday":l),n})})});
   occ.sort((a,b)=>a.n.localeCompare(b.n));
   const sc=s=>C.filter(c=>c.stage===s).length;
   const kpis=`<section class="kpis">
@@ -585,7 +585,7 @@ const CFIELDS=[
   ["Contact",[["name","Name","text",1],["phone","Phone","tel"],["email","Email","email"],["stage","Stage",STAGES],["type","Type",TYPES],["source","Source",SOURCES],["referredBy","Referred by","text"],["estPrice","Estimated price","money"],["birthday","Birthday","md"],["addrFull","Address","addr",1]]],
   ["Partner",[["partner","Name","text",1],["partnerPhone","Phone","tel"],["partnerEmail","Email","email"],["partnerBirthday","Birthday","md"]]],
   ["Follow-up",[["schedule","Follow-up schedule",Object.keys(SCHED)],["lastContact","Last contact","date"],["nextFollowUp","Next follow-up","date"]]],
-  ["Important dates",[["homeAnniversary","Home anniversary","md"],["anniversary","Anniversary","md"]]],
+  ["Important dates",[["homeAnniversary","Home anniversary","mdy"],["anniversary","Anniversary","md"]]],
   ["Notes",[["notes","Notes","textarea",1]]]
 ];
 const PFIELDS=[
@@ -603,6 +603,8 @@ function field(f,val){
   else if(t==="addr")el=`<input id="${id}" name="${k}" data-ac="full" placeholder="Start typing an address" value="${esc(val)}">`;
   else if(t==="street")el=`<input id="${id}" name="${k}" data-ac="street" placeholder="Start typing an address" value="${esc(val)}">`;
   else if(t==="md"){const [mm,dd]=mdParts(val);el=`<div class="md"><select id="${id}" name="${k}_m" aria-label="${esc(l)} month"><option value="">Month</option>${MABBR.map((m,i)=>`<option value="${pad(i+1)}" ${mm===pad(i+1)?"selected":""}>${m}</option>`).join("")}</select><select name="${k}_d" aria-label="${esc(l)} day"><option value="">Day</option>${Array.from({length:31},(_,i)=>`<option value="${pad(i+1)}" ${dd===pad(i+1)?"selected":""}>${i+1}</option>`).join("")}</select></div>`}
+  else if(t==="mdy"){const p=String(val||"").split("-");const yy=p.length===3?p[0]:"";const [mm,dd]=mdParts(val);const thisY=new Date().getFullYear();
+    el=`<div class="md"><select id="${id}" name="${k}_m" aria-label="${esc(l)} month"><option value="">Month</option>${MABBR.map((m,i)=>`<option value="${pad(i+1)}" ${mm===pad(i+1)?"selected":""}>${m}</option>`).join("")}</select><select name="${k}_d" aria-label="${esc(l)} day"><option value="">Day</option>${Array.from({length:31},(_,i)=>`<option value="${pad(i+1)}" ${dd===pad(i+1)?"selected":""}>${i+1}</option>`).join("")}</select><select name="${k}_y" aria-label="${esc(l)} year"><option value="">Year</option>${Array.from({length:thisY-1939},(_,i)=>thisY-i).map(y=>`<option ${yy===String(y)?"selected":""}>${y}</option>`).join("")}</select></div>`}
   else if(t==="tel")el=`<input id="${id}" name="${k}" type="tel" data-phone="1" inputmode="tel" placeholder="(651) 555-0100" value="${esc(val)}">`;
   else el=`<input id="${id}" name="${k}" type="${t}" value="${esc(val)}">`;
   const req=(k==="name"||(k==="address"&&editing.col==="properties"))?" *":"";
@@ -669,7 +671,7 @@ function openLog(id){
 function closeForm(){$("#scrim").classList.remove("open");editing=null;picked=null}
 function readForm(){
   const fd=new FormData($("#form"));const defs=(editing.col==="contacts"?CFIELDS:PFIELDS).flatMap(s=>s[1]);const o=clone(editing.rec);
-  defs.forEach(([k,,t])=>{if(t==="md"){const m=fd.get(k+"_m")||"",d=fd.get(k+"_d")||"";o[k]=m&&d?m+"-"+d:"";return}let v=(fd.get(k)||"").toString().trim();if(t==="money"||t==="pct")v=num(v);o[k]=v});
+  defs.forEach(([k,,t])=>{if(t==="mdy"){const m=fd.get(k+"_m")||"",d=fd.get(k+"_d")||"",y=fd.get(k+"_y")||"";o[k]=m&&d?(y?y+"-":"")+m+"-"+d:"";return}if(t==="md"){const m=fd.get(k+"_m")||"",d=fd.get(k+"_d")||"";o[k]=m&&d?m+"-"+d:"";return}let v=(fd.get(k)||"").toString().trim();if(t==="money"||t==="pct")v=num(v);o[k]=v});
   return o;
 }
 const logEntry=(type,note)=>({id:newId(),d:today(),type,note:(note||"").trim()});
@@ -677,7 +679,7 @@ function applyLog(rec,e){rec.log=[e,...(rec.log||[])];if(e.type!=="Note"){rec.la
 function onClosed(p){
   const c=contactById(p.clientId);if(!c)return;
   const part={stage:"Past Client"};if(!SCHED[c.schedule])part.schedule="Quarterly";
-  if(!c.homeAnniversary&&p.side!=="Seller"&&p.closing)part.homeAnniversary=p.closing.slice(5);
+  if(!c.homeAnniversary&&p.side!=="Seller"&&p.closing)part.homeAnniversary=p.closing;
   part.nextFollowUp=addDays(p.closing&&diff(p.closing)>-7?p.closing:today(),7);
   patch("contacts",c.id,part);toast(c.name+" moved to Past Client, check-in set for "+fmt(part.nextFollowUp));
 }
