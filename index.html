@@ -175,6 +175,11 @@ td.b{font-weight:600}td.r,th.r{text-align:right}td.m{color:var(--ink2)}
 .toggle input{width:16px;height:16px;accent-color:var(--navy)}
 #map{height:420px;border:1px solid var(--line);border-radius:6px;margin-top:14px;z-index:0}
 #map .leaflet-tile-pane{filter:grayscale(1) brightness(1.04) contrast(.92)}
+.mb{background:#f3f5f8;padding:16px 24px 6px!important;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.msec{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 18px 18px;margin-bottom:14px}
+.msec>.sect{margin:0 0 14px!important;padding:0 0 10px!important;border-bottom:1px solid var(--line)}
+.msec .sect-acts{display:flex;gap:8px;margin-top:12px}
+.md{display:flex;gap:8px}.md select{flex:1;min-width:0}
 .cols3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:48px}
 .cardlog{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .cardlog .cm{border:1px solid var(--line);border-radius:6px;padding:10px}
@@ -302,6 +307,7 @@ function normContact(c){
   o.cards=(o.cards&&typeof o.cards==="object")?o.cards:{};
   o.lane=LANES[Number(o.lane)]?Number(o.lane):"";
   if(o.phone)o.phone=formatPhone(o.phone);
+  if(o.partnerPhone)o.partnerPhone=formatPhone(o.partnerPhone);
   return o;
 }
 function loadLocal(){try{const d=JSON.parse(localStorage.getItem(LOCAL_KEY)||"null");if(d){state.contacts=(d.contacts||[]).map(normContact);state.properties=d.properties||[]}}catch(e){}}
@@ -425,11 +431,23 @@ const contactById=id=>state.contacts.find(c=>c.id===id);
 const isOpen=p=>p.status!=="Closed"&&p.status!=="Dead";
 function nextDeadline(p){if(!isOpen(p))return null;let best=null;for(const [k,l] of DEADLINES){const v=p[k];if(!v)continue;if(diff(v)<-1&&k!=="closing")continue;if(!best||v<best.date)best={date:v,label:l}}return best}
 const gci=p=>(Number(p.price)||0)*((Number(p.commissionPct)||0)/100);
-function nextOccur(iso){if(!iso)return null;const [,m,d]=iso.split("-");const y=new Date().getFullYear();let c=y+"-"+m+"-"+d;if(c<today())c=(y+1)+"-"+m+"-"+d;return c}
+function nextOccur(iso){if(!iso)return null;const [m,d]=mdParts(iso);if(!m||!d)return null;const y=new Date().getFullYear();let c=y+"-"+m+"-"+d;if(c<today())c=(y+1)+"-"+m+"-"+d;return c}
 function matches(o,fields){if(!query)return true;const q=query.toLowerCase();const qd=q.replace(/\D/g,"");
   return q.split(/\s+/).filter(Boolean).every(w=>fields.some(f=>String(o[f]||"").toLowerCase().includes(w)))||(qd.length>=3&&String(o.phone||"").replace(/\D/g,"").includes(qd))}
 const clientName=p=>(contactById(p.clientId)||{}).name||"";
 function progHtml(p){const cl=p.checklist||[];if(!cl.length)return '<span style="font-size:12.5px;color:var(--muted)">No checklist</span>';const d=cl.filter(t=>t.done).length;return `<div class="prog"><div class="bar"><i style="width:${Math.round(d/cl.length*100)}%"></i></div><span>${d} of ${cl.length}</span></div>`}
+function mdParts(v){if(!v)return ["",""];const p=String(v).split("-");return [p[p.length-2]||"",p[p.length-1]||""]}
+const mdText=v=>{const [m,d]=mdParts(v);return m&&d?MABBR[+m-1]+" "+(+d):""};
+function phoneTyping(v){let n=String(v).replace(/\D/g,"");if(n.length>10&&n[0]==="1")n=n.slice(1);if(n.length>10)return v;if(!n)return "";if(n.length<4)return "("+n;if(n.length<7)return `(${n.slice(0,3)}) ${n.slice(3)}`;return `(${n.slice(0,3)}) ${n.slice(3,6)}-${n.slice(6)}`}
+function household(c){
+  const name=String(c.name||"").trim(),pt=String(c.partner||"").trim();
+  if(!pt||name.includes("&"))return name;
+  const np=name.split(/\s+/),pp=pt.split(/\s+/);
+  if(np.length<2)return name+" & "+pt;
+  const last=np[np.length-1];
+  if(pp.length===1||pp[pp.length-1].toLowerCase()===last.toLowerCase())return np.slice(0,-1).join(" ")+" & "+(pp.length===1?pp[0]:pp.slice(0,-1).join(" "))+" "+last;
+  return name+" & "+pt;
+}
 const telHref=p=>{let n=String(p||"").replace(/\D/g,"");if(n.length===10)n="1"+n;return n?"+"+n:""};
 const mailLink=e=>e?`<a class="link" style="font-weight:500" href="mailto:${esc(e)}" title="Email ${esc(e)}">${esc(e)}</a>`:"";
 const phoneLink=p=>p?`<a class="link" style="font-weight:500" href="tel:${esc(telHref(p))}" title="Call">${esc(formatPhone(p))}</a>`:"";
@@ -454,7 +472,7 @@ function dash(){
   const due=C.filter(c=>c.nextFollowUp&&diff(c.nextFollowUp)<=0);
   const fu=C.filter(c=>c.nextFollowUp&&diff(c.nextFollowUp)<=7).sort((a,b)=>a.nextFollowUp.localeCompare(b.nextFollowUp));
   const dls=open.map(p=>({p,d:nextDeadline(p)})).filter(x=>x.d&&diff(x.d.date)<=21).sort((a,b)=>a.d.date.localeCompare(b.d.date));
-  const occ=[];C.forEach(c=>{[["birthday","Birthday"],["partnerBirthday","P"],["anniversary","Anniversary"],["homeAnniversary","Home anniversary"]].forEach(([k,l])=>{const n=nextOccur(c[k]);if(n&&diff(n)<=30)occ.push({c,l:l==="P"?((c.partner||"Partner")+"'s birthday"):l,n})})});
+  const occ=[];C.forEach(c=>{[["birthday","Birthday"],["partnerBirthday","P"],["anniversary","Anniversary"],["homeAnniversary","Home anniversary"]].forEach(([k,l])=>{const n=nextOccur(c[k]);if(n&&diff(n)<=30)occ.push({c,l:l==="P"?((String(c.partner||"Partner").split(/\s+/)[0])+"'s birthday"):(l==="Birthday"&&c.partner&&!String(c.name).includes("&")?String(c.name).split(/\s+/)[0]+"'s birthday":l),n})})});
   occ.sort((a,b)=>a.n.localeCompare(b.n));
   const sc=s=>C.filter(c=>c.stage===s).length;
   const kpis=`<section class="kpis">
@@ -465,7 +483,7 @@ function dash(){
     <div class="kpi"><div class="k">Projected GCI</div><div class="v">${kmoney(open.reduce((s,p)=>s+gci(p),0))}</div><div class="n">Open deals</div></div>
     <div class="kpi"><div class="k">Closed ${yr}</div><div class="v">${closedYr.length}</div><div class="n">${kmoney(closedYr.reduce((s,p)=>s+(+p.price||0),0))} volume</div></div></section>`;
   const fuHtml=fu.length?fu.map(c=>{const r=rel(c.nextFollowUp);const ll=(c.log||[])[0];const sub=[c.stage,c.source,ll?("last "+ll.type.toLowerCase()+" "+fmt(ll.d)):(c.lastContact?"last talked "+fmt(c.lastContact):"")].filter(Boolean).join(" · ");
-    return `<div class="row click" data-edit="contacts:${esc(c.id)}">${dot(r.c)}<div class="grow"><div class="t">${esc(c.name)}</div><div class="s">${esc(sub)}</div></div><span class="when ${r.cls}">${r.txt}</span><button class="link" data-log="${esc(c.id)}">Log</button></div>`}).join("")
+    return `<div class="row click" data-edit="contacts:${esc(c.id)}">${dot(r.c)}<div class="grow"><div class="t">${esc(household(c))}</div><div class="s">${esc(sub)}</div></div><span class="when ${r.cls}">${r.txt}</span><button class="link" data-log="${esc(c.id)}">Log</button></div>`}).join("")
     :`<div class="empty">Nobody to follow up with this week. Give contacts a follow-up schedule and they'll show up here.</div>`;
   const dlHtml=dls.length?dls.map(({p,d})=>{const dt=parse(d.date);const cn=clientName(p);const late=diff(d.date)<0;
     return `<div class="row click" data-edit="properties:${esc(p.id)}"><div class="datebox"><div class="m">${MON[dt.getMonth()]}</div><div class="d" style="${late?"color:var(--red)":""}">${dt.getDate()}</div></div><div class="grow"><div class="t">${esc(d.label)}</div><div class="s">${esc(p.address)}${cn?" · "+esc(cn):""}</div></div></div>`}).join("")
@@ -473,7 +491,7 @@ function dash(){
   const deals=open.slice().sort((a,b)=>{const x=nextDeadline(a),y=nextDeadline(b);return (x?x.date:"9999").localeCompare(y?y.date:"9999")});
   const dealsHtml=deals.length?`<div class="tw"><table><thead><tr><th>Address</th><th>Status</th><th>Client</th><th>Next date</th><th>Checklist</th><th class="r">Price</th></tr></thead><tbody>${deals.map(p=>{const d=nextDeadline(p);return `<tr class="click" data-edit="properties:${esc(p.id)}"><td class="b">${esc(p.address)}</td><td>${status(p.status)}</td><td class="m">${esc(clientName(p))}</td><td class="m">${d?esc(d.label)+", "+fmt(d.date):'<span style="color:var(--muted)">None</span>'}</td><td>${progHtml(p)}</td><td class="r b">${money(p.price)||'<span style="color:var(--muted);font-weight:400">Not set</span>'}</td></tr>`}).join("")}</tbody></table></div>`
     :`<div class="empty">No open deals yet. Add a property to start tracking one.</div>`;
-  const occHtml=occ.length?occ.map(o=>`<div class="row click" data-edit="contacts:${esc(o.c.id)}"><div class="grow"><div class="t">${esc(o.c.name)}</div><div class="s">${esc(o.l)}</div></div><span class="when ok">${fmt(o.n)}</span></div>`).join(""):`<div class="empty">No birthdays or anniversaries in the next 30 days.</div>`;
+  const occHtml=occ.length?occ.map(o=>`<div class="row click" data-edit="contacts:${esc(o.c.id)}"><div class="grow"><div class="t">${esc(household(o.c))}</div><div class="s">${esc(o.l)}</div></div><span class="when ok">${mdText(o.n)}${diff(o.n)===0?" · today":""}</span></div>`).join(""):`<div class="empty">No birthdays or anniversaries in the next 30 days.</div>`;
   const stHtml=STAGES.map(s=>`<div class="row click" data-stage="${esc(s)}">${dot(DOT[s])}<div class="grow"><div class="t" style="font-weight:500">${esc(s)}</div></div><span style="font-weight:700;color:var(--navy);font-variant-numeric:tabular-nums">${sc(s)}</span></div>`).join("");
   const mk=activeMonthKey();const mname=MABBR[mFromIndex(mIndex(mk)).monthIndex];
   const pcRows=[1,2,3].map(l=>{const pl=C.filter(c=>c.lane===l&&plannedThisMonth(c));const s=pl.filter(c=>sentIn(c,mk)).length;return `<div class="row click" data-pclane="${l}">${dot(LANES[l].color)}<div class="grow"><div class="t" style="font-weight:500">${LANES[l].label}</div></div><span style="font-variant-numeric:tabular-nums;color:var(--ink2)">${s} of ${pl.length} sent</span></div>`}).join("");
@@ -488,19 +506,19 @@ function dash(){
 }
 
 function searchView(){
-  const cs=state.contacts.filter(c=>matches({...c,full:fullAddress(c)},["name","email","phone","full","partner","notes","source","referredBy","stage"])).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  const cs=state.contacts.filter(c=>matches({...c,full:fullAddress(c)},["name","email","phone","full","partner","partnerEmail","partnerPhone","notes","source","referredBy","stage"])).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
   const ps=state.properties.filter(p=>matches({...p,client:clientName(p)},["address","city","client","mls","notes","status"]));
-  const cRows=cs.map(c=>`<div class="row click" data-edit="contacts:${esc(c.id)}">${dot(DOT[c.stage]||"#9aa3b0")}<div class="grow"><div class="t">${esc(c.name)}</div><div class="s">${esc([c.stage,formatPhone(c.phone),c.email,fullAddress(c)].filter(Boolean).join(" · "))}</div></div>${laneTag(c)}</div>`).join("");
+  const cRows=cs.map(c=>`<div class="row click" data-edit="contacts:${esc(c.id)}">${dot(DOT[c.stage]||"#9aa3b0")}<div class="grow"><div class="t">${esc(household(c))}</div><div class="s">${esc([c.stage,formatPhone(c.phone),c.email,fullAddress(c)].filter(Boolean).join(" · "))}</div></div>${laneTag(c)}</div>`).join("");
   const pRows=ps.map(p=>`<div class="row click" data-edit="properties:${esc(p.id)}">${dot(DOT[p.status]||"#9aa3b0")}<div class="grow"><div class="t">${esc(p.address)}</div><div class="s">${esc([p.status,clientName(p),money(p.price)].filter(Boolean).join(" · "))}</div></div></div>`).join("");
   return `<div class="stack"><section><div class="sh"><h2>Contacts</h2><span class="meta">${cs.length} match${cs.length===1?"":"es"} for “${esc(query)}”</span></div>${cRows||'<div class="empty">No contacts match.</div>'}</section>
     <section><div class="sh"><h2>Properties</h2><span class="meta">${ps.length} match${ps.length===1?"":"es"}</span></div>${pRows||'<div class="empty">No properties match.</div>'}</section></div>`;
 }
 function contactsView(){
   const C=state.contacts;
-  const list=C.filter(c=>(cTab==="All"||c.stage===cTab)&&(cType==="All"||c.type===cType)&&matches({...c,full:fullAddress(c)},["name","email","phone","full","partner","notes","source","referredBy"]))
+  const list=C.filter(c=>(cTab==="All"||c.stage===cTab)&&(cType==="All"||c.type===cType)&&matches({...c,full:fullAddress(c)},["name","email","phone","full","partner","partnerEmail","partnerPhone","notes","source","referredBy"]))
     .sort((a,b)=>{const x=a.nextFollowUp||"9999",y=b.nextFollowUp||"9999";return x===y?String(a.name).localeCompare(String(b.name)):x.localeCompare(y)});
   const tabs=["All",...STAGES].map(s=>`<button class="tab ${cTab===s?"on":""}" data-ctab="${esc(s)}">${esc(s)}<span class="c">${s==="All"?C.length:C.filter(c=>c.stage===s).length}</span></button>`).join("");
-  const rows=list.map(c=>{const r=rel(c.nextFollowUp);return `<tr class="click" data-edit="contacts:${esc(c.id)}"><td class="b">${esc(c.name)}${c.partner?`<div style="font-weight:400;font-size:12.5px;color:var(--muted)">and ${esc(c.partner)}</div>`:""}</td><td>${status(c.stage)}</td><td class="m">${esc(c.type||"")}</td><td><span class="when ${r.cls}">${c.nextFollowUp?r.txt:"None"}</span></td><td class="m">${phoneLink(c.phone)}</td><td class="m">${mailLink(c.email)}</td><td class="m">${esc(c.source||"")}</td><td>${laneTag(c)}</td></tr>`}).join("");
+  const rows=list.map(c=>{const r=rel(c.nextFollowUp);return `<tr class="click" data-edit="contacts:${esc(c.id)}"><td class="b">${esc(household(c))}</td><td>${status(c.stage)}</td><td class="m">${esc(c.type||"")}</td><td><span class="when ${r.cls}">${c.nextFollowUp?r.txt:"None"}</span></td><td class="m">${phoneLink(c.phone)}</td><td class="m">${mailLink(c.email)}</td><td class="m">${esc(c.source||"")}</td><td>${laneTag(c)}</td></tr>`}).join("");
   return `<section><div class="sh"><h2>Contacts</h2><span class="meta">Soonest follow-up first</span></div>
     <div class="toolbar"><div class="tabs">${tabs}</div><select class="sel" id="ctype" aria-label="Contact type"><option value="All">All types</option>${TYPES.map(t=>`<option ${cType===t?"selected":""}>${esc(t)}</option>`).join("")}</select></div>
     ${list.length?`<div class="tw"><table><thead><tr><th>Name</th><th>Stage</th><th>Type</th><th>Next follow-up</th><th>Phone</th><th>Email</th><th>Source</th><th>Postcards</th></tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="empty">${C.length?"No contacts match.":"No contacts yet. Click New contact to add your first."}</div>`}</section>`;
@@ -542,7 +560,7 @@ function postcardView(){
   const rows=list.map(c=>{
     const pl=months.filter(m=>isPlanned(c,m.monthIndex));const sc=pl.filter(m=>sentIn(c,m.key)).length;
     const chips=months.map(m=>`<button class="chip ${isPlanned(c,m.monthIndex)?"plan":""} ${sentIn(c,m.key)?"sent":""} ${m.key===mk?"cur":""} ${m.monthIndex===0&&m.key!==months[0].key?"jan":""}" data-pc="${esc(c.id)}|${m.key}" id="chip-${esc(c.id)}-${m.key}" title="${m.label} ${m.year}" aria-label="${m.label} ${m.year} ${sentIn(c,m.key)?"sent":"not sent"}">${m.label}</button>`).join("");
-    return `<tr><td class="b"><a href="#" data-edit="contacts:${esc(c.id)}" style="color:inherit">${esc(c.name)}</a><div style="font-weight:400;font-size:12.5px;color:var(--muted)">${esc(fullAddress(c))}</div></td><td>${laneTag(c)}</td><td class="m">${tierOf(c)}</td><td><div class="chips">${chips}</div></td><td class="r m" id="cnt-${esc(c.id)}">${sc}/${pl.length}</td></tr>`}).join("");
+    return `<tr><td class="b"><a href="#" data-edit="contacts:${esc(c.id)}" style="color:inherit">${esc(household(c))}</a><div style="font-weight:400;font-size:12.5px;color:var(--muted)">${esc(fullAddress(c))}</div></td><td>${laneTag(c)}</td><td class="m">${tierOf(c)}</td><td><div class="chips">${chips}</div></td><td class="r m" id="cnt-${esc(c.id)}">${sc}/${pl.length}</td></tr>`}).join("");
   return `<section><div class="sh"><h2>Postcards</h2><span class="meta">Outlined months are planned for that contact's tier. Click a month to mark it sent.</span></div>
     <div class="pc-head"><div><span class="pc-big" id="pcLeft">${planned.length-sent.length}</span> <span style="color:var(--ink2);font-weight:600">left to send in ${MABBR[am.monthIndex]} ${am.year}</span></div><div style="color:var(--muted);font-size:13.5px" id="pcSent">${sent.length} of ${planned.length} sent</div></div>
     <div class="toolbar"><div class="tabs">${tabs}</div><label class="toggle" style="margin-left:auto"><input type="checkbox" id="pcNeed" ${pcNeedOnly?"checked":""}>Not sent yet</label></div>
@@ -564,9 +582,10 @@ function initMap(){
 
 /* ---------- forms ---------- */
 const CFIELDS=[
-  ["Contact",[["name","Name","text",1],["phone","Phone","tel"],["email","Email","email"],["partner","Partner","text"],["stage","Stage",STAGES],["type","Type",TYPES],["source","Source",SOURCES],["referredBy","Referred by","text"],["estPrice","Estimated price","money"],["addrFull","Address","addr",1]]],
+  ["Contact",[["name","Name","text",1],["phone","Phone","tel"],["email","Email","email"],["stage","Stage",STAGES],["type","Type",TYPES],["source","Source",SOURCES],["referredBy","Referred by","text"],["estPrice","Estimated price","money"],["addrFull","Address","addr",1]]],
+  ["Partner",[["partner","Name","text",1],["partnerPhone","Phone","tel"],["partnerEmail","Email","email"],["partnerBirthday","Birthday","md"]]],
   ["Follow-up",[["schedule","Follow-up schedule",Object.keys(SCHED)],["lastContact","Last contact","date"],["nextFollowUp","Next follow-up","date"]]],
-  ["Important dates",[["birthday","Birthday","date"],["partnerBirthday","Partner's birthday","date"],["anniversary","Anniversary","date"],["homeAnniversary","Home anniversary","date"]]],
+  ["Important dates",[["birthday","Birthday","md"],["anniversary","Anniversary","md"],["homeAnniversary","Home anniversary","md"]]],
   ["Notes",[["notes","Notes","textarea",1]]]
 ];
 const PFIELDS=[
@@ -583,6 +602,8 @@ function field(f,val){
   else if(t==="pct")el=`<input id="${id}" name="${k}" inputmode="decimal" placeholder="e.g. 2.5" value="${esc(val)}">`;
   else if(t==="addr")el=`<input id="${id}" name="${k}" data-ac="full" placeholder="Start typing an address" value="${esc(val)}">`;
   else if(t==="street")el=`<input id="${id}" name="${k}" data-ac="street" placeholder="Start typing an address" value="${esc(val)}">`;
+  else if(t==="md"){const [mm,dd]=mdParts(val);el=`<div class="md"><select id="${id}" name="${k}_m" aria-label="${esc(l)} month"><option value="">Month</option>${MABBR.map((m,i)=>`<option value="${pad(i+1)}" ${mm===pad(i+1)?"selected":""}>${m}</option>`).join("")}</select><select name="${k}_d" aria-label="${esc(l)} day"><option value="">Day</option>${Array.from({length:31},(_,i)=>`<option value="${pad(i+1)}" ${dd===pad(i+1)?"selected":""}>${i+1}</option>`).join("")}</select></div>`}
+  else if(t==="tel")el=`<input id="${id}" name="${k}" type="tel" data-phone="1" inputmode="tel" placeholder="(651) 555-0100" value="${esc(val)}">`;
   else el=`<input id="${id}" name="${k}" type="${t}" value="${esc(val)}">`;
   const req=(k==="name"||(k==="address"&&editing.col==="properties"))?" *":"";
   return `<div class="f ${full?"full":""}"><label for="${id}">${esc(l)}${req}</label>${el}</div>`;
@@ -621,15 +642,16 @@ function openForm(col,id,preset){
   editing={col,id:id||(rec.id=newId()),isNew:!id,rec,prevStatus:src?src.status:null};
   const defs=col==="contacts"?CFIELDS:PFIELDS;
   let after="",tail="";
-  if(col==="contacts"){after=`<div class="sect">Activity</div><div id="logBox">${logHtml(rec)}</div>`;
-    tail=`<div class="sect">Postcards</div><div id="pcBox">${postcardFormHtml(rec)}</div>`;
-    if(id){const ps=state.properties.filter(p=>p.clientId===id);tail+=`<div class="sect">Properties</div>${ps.map(p=>`<div class="row click" data-edit="properties:${esc(p.id)}">${dot(DOT[p.status]||"#9aa3b0")}<div class="grow"><div class="t">${esc(p.address)}</div><div class="s">${esc(p.status||"")}${p.price?" · "+money(p.price):""}</div></div></div>`).join("")}<div style="margin-top:10px"><button type="button" class="link" data-act="propForContact">Add a property for this contact</button></div>`}}
-  else tail=`<div class="sect">Checklist</div><div id="clBox">${checklistHtml(rec)}</div><div class="sect">Estimated commission</div><div class="calc"><span style="color:var(--muted);font-weight:500">Price × commission %</span><span id="gci">${money(gci(rec))||"$0"}</span></div>`;
+  if(col==="contacts"){after=`<section class="msec"><div class="sect">Activity</div><div id="logBox">${logHtml(rec)}</div></section>`;
+    tail=`<section class="msec"><div class="sect">Postcards</div><div id="pcBox">${postcardFormHtml(rec)}</div></section>`;
+    if(id){const ps=state.properties.filter(p=>p.clientId===id);tail+=`<section class="msec"><div class="sect">Properties</div>${ps.map(p=>`<div class="row click" data-edit="properties:${esc(p.id)}">${dot(DOT[p.status]||"#9aa3b0")}<div class="grow"><div class="t">${esc(p.address)}</div><div class="s">${esc(p.status||"")}${p.price?" · "+money(p.price):""}</div></div></div>`).join("")}<div style="margin-top:10px"><button type="button" class="link" data-act="propForContact">Add a property for this contact</button></div></section>`}}
+  else tail=`<section class="msec"><div class="sect">Checklist</div><div id="clBox">${checklistHtml(rec)}</div></section><section class="msec"><div class="sect">Estimated commission</div><div class="calc"><span style="color:var(--muted);font-weight:500">Price × commission %</span><span id="gci">${money(gci(rec))||"$0"}</span></div></section>`;
   const title=col==="contacts"?(rec.name||"New contact"):(rec.address||"New property");
+  const partnerActs=col==="contacts"&&id&&(rec.partnerEmail||rec.partnerPhone)?`<div class="sect-acts">${[rec.partnerEmail?`<a class="btn outline sm" href="mailto:${esc(rec.partnerEmail)}">Email</a>`:"",rec.partnerPhone?`<a class="btn outline sm" href="tel:${esc(telHref(rec.partnerPhone))}">Call</a>`:"",rec.partnerPhone?`<a class="btn outline sm" href="sms:${esc(telHref(rec.partnerPhone))}">Text</a>`:""].join("")}</div>`:"";
   const acts=col==="contacts"&&id?[rec.email?`<a class="btn outline sm" href="mailto:${esc(rec.email)}">Email</a>`:"",rec.phone?`<a class="btn outline sm" href="tel:${esc(telHref(rec.phone))}">Call</a>`:"",rec.phone?`<a class="btn outline sm" href="sms:${esc(telHref(rec.phone))}">Text</a>`:""].filter(Boolean).join(""):"";
   const m=$("#modal");m.className="modal";
   m.innerHTML=`<form id="form" autocomplete="off"><div class="mh"><h3>${esc(title)}</h3><div style="display:flex;gap:8px;align-items:center;margin-left:auto">${acts}</div><button type="button" class="x" data-act="close" aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
-  <div class="mb">${defs.map(([s,fs],i)=>`<div class="sect">${esc(s)}</div><div class="fg">${fs.map(f=>field(f,rec[f[0]]??"")).join("")}</div>`+(i===0?after:"")).join("")}${tail}</div>
+  <div class="mb">${defs.map(([s,fs],i)=>`<section class="msec"><div class="sect">${esc(s)}</div><div class="fg">${fs.map(f=>field(f,rec[f[0]]??"")).join("")}</div>${s==="Partner"?partnerActs:""}</section>`+(i===0?after:"")).join("")}${tail}</div>
   <div class="mf"><div>${id?`<button type="button" class="danger" data-act="del">Delete</button>`:""}</div><div class="r"><button type="button" class="btn outline" data-act="close">Cancel</button><button type="submit" class="btn primary">Save</button></div></div></form>`;
   $("#scrim").classList.add("open");$("#scrim").scrollTop=0;
   attachAutocomplete();
@@ -647,7 +669,7 @@ function openLog(id){
 function closeForm(){$("#scrim").classList.remove("open");editing=null;picked=null}
 function readForm(){
   const fd=new FormData($("#form"));const defs=(editing.col==="contacts"?CFIELDS:PFIELDS).flatMap(s=>s[1]);const o=clone(editing.rec);
-  defs.forEach(([k,,t])=>{let v=(fd.get(k)||"").toString().trim();if(t==="money"||t==="pct")v=num(v);o[k]=v});
+  defs.forEach(([k,,t])=>{if(t==="md"){const m=fd.get(k+"_m")||"",d=fd.get(k+"_d")||"";o[k]=m&&d?m+"-"+d:"";return}let v=(fd.get(k)||"").toString().trim();if(t==="money"||t==="pct")v=num(v);o[k]=v});
   return o;
 }
 const logEntry=(type,note)=>({id:newId(),d:today(),type,note:(note||"").trim()});
@@ -655,7 +677,7 @@ function applyLog(rec,e){rec.log=[e,...(rec.log||[])];if(e.type!=="Note"){rec.la
 function onClosed(p){
   const c=contactById(p.clientId);if(!c)return;
   const part={stage:"Past Client"};if(!SCHED[c.schedule])part.schedule="Quarterly";
-  if(!c.homeAnniversary&&p.side!=="Seller"&&p.closing)part.homeAnniversary=p.closing;
+  if(!c.homeAnniversary&&p.side!=="Seller"&&p.closing)part.homeAnniversary=p.closing.slice(5);
   part.nextFollowUp=addDays(p.closing&&diff(p.closing)>-7?p.closing:today(),7);
   patch("contacts",c.id,part);toast(c.name+" moved to Past Client, check-in set for "+fmt(part.nextFollowUp));
 }
@@ -667,7 +689,7 @@ async function submitForm(){
   if(col==="contacts"&&!o.name){toast("Add a name first");$("#f_name").focus();return}
   if(col==="properties"&&!o.address){toast("Add an address first");$("#f_address").focus();return}
   if(col==="contacts"){
-    o.phone=formatPhone(o.phone);
+    o.phone=formatPhone(o.phone);o.partnerPhone=formatPhone(o.partnerPhone);
     const txt=o.addrFull;delete o.addrFull;
     if(pk){Object.assign(o,{addr:pk.addr,city:pk.city,state:pk.state,zip:pk.zip,lat:pk.lat,lng:pk.lng})}
     else if(txt!==fullAddress(editing.rec)){Object.assign(o,{addr:txt,city:"",state:"",zip:"",lat:null,lng:null});if(txt){const g=await geocode(txt);if(g){o.lat=g.lat;o.lng=g.lng}}}
@@ -729,6 +751,7 @@ document.addEventListener("change",e=>{
   if(t.dataset.check){const [pid,i]=t.dataset.check.split(":");const p=state.properties.find(x=>x.id===pid);if(!p||!p.checklist||!p.checklist[+i])return;const cl=clone(p.checklist);cl[+i].done=t.checked;patch("properties",pid,{checklist:cl})}
 });
 document.addEventListener("input",e=>{
+  if(e.target.dataset&&e.target.dataset.phone){const el=e.target;const atEnd=el.selectionStart===el.value.length;const nv=phoneTyping(el.value);if(nv!==el.value&&(atEnd||e.inputType!=="deleteContentBackward")){el.value=nv;el.setSelectionRange(nv.length,nv.length)}return}
   if(e.target.id==="q"){query=e.target.value.trim();render();return}
   if(editing&&editing.col==="properties"&&(e.target.name==="price"||e.target.name==="commissionPct")){const g=$("#gci");if(g)g.textContent=money((num($("#f_price").value)||0)*((num($("#f_commissionPct").value)||0)/100))||"$0"}
 });
@@ -739,7 +762,7 @@ document.addEventListener("keydown",e=>{
   if(e.key==="Enter"&&e.target.id==="logNote"){e.preventDefault();document.querySelector('[data-act="addLog"]').click()}
 });
 document.addEventListener("submit",e=>{e.preventDefault();submitForm()});
-document.addEventListener("focusout",e=>{if(e.target.id==="f_phone")e.target.value=formatPhone(e.target.value.trim())});
+document.addEventListener("focusout",e=>{if(e.target.dataset&&e.target.dataset.phone)e.target.value=formatPhone(e.target.value.trim())});
 $("#scrim").addEventListener("mousedown",e=>{if(e.target.id==="scrim")closeForm()});
 let dragId=null;
 document.addEventListener("dragstart",e=>{const k=e.target.closest&&e.target.closest(".kcard");if(k){dragId=k.dataset.id;e.dataTransfer.effectAllowed="move";try{e.dataTransfer.setData("text/plain",dragId)}catch(_){}}});
