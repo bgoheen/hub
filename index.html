@@ -474,7 +474,7 @@ function render(){
 
 
 /* ---------- reminders ---------- */
-const REM_AHEAD=14, REM_GRACE=7, DIGEST_DAYS=45;
+const REM_AHEAD=14, REM_GRACE=7 /* home anniversaries get 30 days */, DIGEST_DAYS=45;
 const dayDiff=(iso,asOf)=>Math.round((parse(iso)-parse(asOf))/86400000);
 const firstName=n=>String(n||"").trim().split(/\s+/)[0]||"";
 function dateEvents(c){
@@ -482,7 +482,7 @@ function dateEvents(c){
   const single=!String(c.name||"").includes("&");
   if(c.birthday)out.push({k:"birthday",v:c.birthday,label:(c.partner&&single?firstName(c.name)+"'s birthday":"Birthday"),icon:"cake",who:"main"});
   if(c.partnerBirthday)out.push({k:"partnerBirthday",v:c.partnerBirthday,label:(firstName(c.partner)||"Partner")+"'s birthday",icon:"cake",who:"partner"});
-  if(c.homeAnniversary)out.push({k:"homeAnniversary",v:c.homeAnniversary,label:"Home anniversary",icon:"home",who:"main"});
+  if(c.homeAnniversary)out.push({k:"homeAnniversary",v:c.homeAnniversary,label:"Home anniversary",icon:"home",who:"main",grace:30});
   if(c.anniversary)out.push({k:"anniversary",v:c.anniversary,label:"Anniversary",icon:"heart",who:"main"});
   return out;
 }
@@ -493,7 +493,7 @@ function remindersAsOf(asOf){
       const [m,d]=mdParts(ev.v);if(!m||!d)return;
       [y-1,y,y+1].forEach(Y=>{
         const date=Y+"-"+m+"-"+d;const dd=dayDiff(date,asOf);
-        if(dd>REM_AHEAD||dd< -REM_GRACE)return;
+        if(dd>REM_AHEAD||dd< -(ev.grace||REM_GRACE))return;
         if(c.done&&c.done[ev.k+"-"+Y])return;
         let label=ev.label;
         if(ev.k==="homeAnniversary"&&String(ev.v).split("-").length===3){const yrs=Y-Number(String(ev.v).slice(0,4));if(yrs>0)label=yrs+(yrs===1?" year":" years")+" in their home"}
