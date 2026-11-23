@@ -433,7 +433,7 @@ function attachAutocomplete(){
 function geocode(text){return new Promise(res=>{try{if(!googleReady||!text)return res(null);const t=setTimeout(()=>res(null),4000);new google.maps.Geocoder().geocode({address:text},(r,s)=>{clearTimeout(t);res(s==="OK"&&r[0]?{lat:r[0].geometry.location.lat(),lng:r[0].geometry.location.lng()}:null)})}catch(e){res(null)}})}
 
 /* ---------- derived ---------- */
-let cSort={k:"next",dir:1};
+let cSort={k:"name",dir:1};
 let view="dashboard",query="",cTab="All",cType="All",pTab="Open",showDead=false,editing=null,pcLane="all",pcNeedOnly=false;
 const contactById=id=>state.contacts.find(c=>c.id===id);
 const isOpen=p=>p.status!=="Closed"&&p.status!=="Dead";
