@@ -180,6 +180,9 @@ td.b{font-weight:600}td.r,th.r{text-align:right}td.m{color:var(--ink2)}
 .msec>.sect{margin:0 0 14px!important;padding:0 0 10px!important;border-bottom:1px solid var(--line)}
 .msec .sect-acts{display:flex;gap:8px;margin-top:12px}
 .md{display:flex;gap:8px}.md select{flex:1;min-width:0}
+.thsort{font:inherit;color:inherit;letter-spacing:inherit;text-transform:inherit;display:inline-flex;gap:5px;align-items:center;cursor:pointer}
+.thsort:hover{color:var(--ink)}.thsort.on{color:var(--navy)}.thsort .ar{font-size:10px;opacity:.35}.thsort.on .ar{opacity:1}
+a.kpi{display:block;color:inherit;text-decoration:none;cursor:pointer}a.kpi:hover{background:#fafbfd}a.kpi:hover .v{text-decoration:underline;text-decoration-thickness:2px;text-underline-offset:4px}
 .cols3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:48px}
 .cardlog{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .cardlog .cm{border:1px solid var(--line);border-radius:6px;padding:10px}
@@ -430,6 +433,7 @@ function attachAutocomplete(){
 function geocode(text){return new Promise(res=>{try{if(!googleReady||!text)return res(null);const t=setTimeout(()=>res(null),4000);new google.maps.Geocoder().geocode({address:text},(r,s)=>{clearTimeout(t);res(s==="OK"&&r[0]?{lat:r[0].geometry.location.lat(),lng:r[0].geometry.location.lng()}:null)})}catch(e){res(null)}})}
 
 /* ---------- derived ---------- */
+let cSort={k:"next",dir:1};
 let view="dashboard",query="",cTab="All",cType="All",pTab="Open",showDead=false,editing=null,pcLane="all",pcNeedOnly=false;
 const contactById=id=>state.contacts.find(c=>c.id===id);
 const isOpen=p=>p.status!=="Closed"&&p.status!=="Dead";
@@ -551,12 +555,12 @@ function dash(){
   const sc=s=>C.filter(c=>c.stage===s).length;
   const R=remindersAsOf(today());const remDue=R.over.length+R.today.length,remSoon=R.soon.length;
   const kpis=`<section class="kpis">
-    <div class="kpi"><div class="k">Reminders due</div><div class="v ${remDue?"alert":""}">${remDue}</div><div class="n">${remSoon} in the next 2 weeks</div></div>
-    <div class="kpi"><div class="k">Contacts</div><div class="v">${C.length}</div><div class="n">${sc("Active")+sc("Under Contract")} active clients</div></div>
-    <div class="kpi"><div class="k">Open deals</div><div class="v">${open.length}</div><div class="n">${kmoney(open.reduce((s,p)=>s+(+p.price||0),0))} volume</div></div>
-    <div class="kpi"><div class="k">Under contract</div><div class="v">${kmoney(uc.reduce((s,p)=>s+(+p.price||0),0))}</div><div class="n">${uc.length} deal${uc.length===1?"":"s"}</div></div>
-    <div class="kpi"><div class="k">Projected GCI</div><div class="v">${kmoney(open.reduce((s,p)=>s+gci(p),0))}</div><div class="n">Open deals</div></div>
-    <div class="kpi"><div class="k">Closed ${yr}</div><div class="v">${closedYr.length}</div><div class="n">${kmoney(closedYr.reduce((s,p)=>s+(+p.price||0),0))} volume</div></div></section>`;
+    <a class="kpi" href="#dashboard" data-kpi="reminders"><div class="k">Reminders due</div><div class="v ${remDue?"alert":""}">${remDue}</div><div class="n">${remSoon} in the next 2 weeks</div></a>
+    <a class="kpi" href="#contacts" data-kpi="contacts"><div class="k">Contacts</div><div class="v">${C.length}</div><div class="n">${sc("Active")+sc("Under Contract")} active clients</div></a>
+    <a class="kpi" href="#properties" data-kpi="Open"><div class="k">Open deals</div><div class="v">${open.length}</div><div class="n">${kmoney(open.reduce((s,p)=>s+(+p.price||0),0))} volume</div></a>
+    <a class="kpi" href="#properties" data-kpi="Under Contract"><div class="k">Under contract</div><div class="v">${kmoney(uc.reduce((s,p)=>s+(+p.price||0),0))}</div><div class="n">${uc.length} deal${uc.length===1?"":"s"}</div></a>
+    <a class="kpi" href="#pipeline" data-kpi="pipeline"><div class="k">Projected GCI</div><div class="v">${kmoney(open.reduce((s,p)=>s+gci(p),0))}</div><div class="n">Open deals</div></a>
+    <a class="kpi" href="#properties" data-kpi="Closed"><div class="k">Closed ${yr}</div><div class="v">${closedYr.length}</div><div class="n">${kmoney(closedYr.reduce((s,p)=>s+(+p.price||0),0))} volume</div></a></section>`;
   const fuHtml=fu.length?fu.map(c=>{const r=rel(c.nextFollowUp);const ll=(c.log||[])[0];const sub=[c.stage,c.source,ll?("last "+ll.type.toLowerCase()+" "+fmt(ll.d)):(c.lastContact?"last talked "+fmt(c.lastContact):"")].filter(Boolean).join(" · ");
     return `<div class="row click" data-edit="contacts:${esc(c.id)}">${dot(r.c)}<div class="grow"><div class="t">${esc(household(c))}</div><div class="s">${esc(sub)}</div></div><span class="when ${r.cls}">${r.txt}</span><button class="link" data-log="${esc(c.id)}">Log</button></div>`}).join("")
     :`<div class="empty">Nobody to follow up with this week. Give contacts a follow-up schedule and they'll show up here.</div>`;
@@ -572,7 +576,7 @@ function dash(){
   const pcRows=[1,2,3].map(l=>{const pl=C.filter(c=>c.lane===l&&plannedThisMonth(c));const s=pl.filter(c=>sentIn(c,mk)).length;return `<div class="row click" data-pclane="${l}">${dot(LANES[l].color)}<div class="grow"><div class="t" style="font-weight:500">${LANES[l].label}</div></div><span style="font-variant-numeric:tabular-nums;color:var(--ink2)">${s} of ${pl.length} sent</span></div>`}).join("");
   const left=C.filter(needsCard).length;
   return `<div class="stack">${kpis}
-    <div class="cols2"><section><div class="sh"><h2>Reminders</h2><span class="meta">Follow-ups, birthdays and anniversaries</span></div>${remindersHtml()}</section>
+    <div class="cols2"><section id="remSec"><div class="sh"><h2>Reminders</h2><span class="meta">Follow-ups, birthdays and anniversaries</span></div>${remindersHtml()}</section>
     <section><div class="sh"><h2>Deadlines</h2><span class="meta">Next 3 weeks</span></div>${dlHtml}</section></div>
     <section><div class="sh"><h2>Deals</h2><a class="link" href="#pipeline">Open pipeline</a></div>${dealsHtml}</section>
     <div class="cols2"><section><div class="sh"><h2>Contacts by stage</h2><a class="link" href="#contacts">All contacts</a></div>${stHtml}</section>
@@ -587,15 +591,33 @@ function searchView(){
   return `<div class="stack"><section><div class="sh"><h2>Contacts</h2><span class="meta">${cs.length} match${cs.length===1?"":"es"} for “${esc(query)}”</span></div>${cRows||'<div class="empty">No contacts match.</div>'}</section>
     <section><div class="sh"><h2>Properties</h2><span class="meta">${ps.length} match${ps.length===1?"":"es"}</span></div>${pRows||'<div class="empty">No properties match.</div>'}</section></div>`;
 }
+const CSORTS={name:{label:"Name"},stage:{label:"Stage"},type:{label:"Type"},next:{label:"Next follow-up"},source:{label:"Source"},lane:{label:"Postcards"}};
+function contactSorter(){
+  const byName=(a,b)=>household(a).localeCompare(household(b),undefined,{sensitivity:"base"});
+  const val=c=>{switch(cSort.k){
+    case "name":return null;
+    case "stage":{const i=STAGES.indexOf(c.stage);return i<0?null:i}
+    case "type":{const i=TYPES.indexOf(c.type);return i<0?null:i}
+    case "next":return c.nextFollowUp||null;
+    case "source":return c.source?String(c.source).toLowerCase():null;
+    case "lane":return onFarm(c)?Number(c.lane):null}};
+  return (a,b)=>{
+    if(cSort.k==="name")return byName(a,b)*cSort.dir;
+    const x=val(a),y=val(b);
+    if(x===null&&y===null)return byName(a,b);if(x===null)return 1;if(y===null)return -1;   // blanks always last
+    const r=x<y?-1:x>y?1:0;return r?r*cSort.dir:byName(a,b);
+  };
+}
+const sortTh=k=>{const on=cSort.k===k;return `<th><button class="thsort ${on?"on":""}" data-csort="${k}" aria-label="Sort by ${CSORTS[k].label}">${CSORTS[k].label}<span class="ar">${on&&cSort.dir<0?"▼":"▲"}</span></button></th>`};
 function contactsView(){
   const C=state.contacts;
   const list=C.filter(c=>(cTab==="All"||c.stage===cTab)&&(cType==="All"||c.type===cType)&&matches({...c,full:fullAddress(c)},["name","email","phone","full","partner","partnerEmail","partnerPhone","notes","source","referredBy"]))
-    .sort((a,b)=>{const x=a.nextFollowUp||"9999",y=b.nextFollowUp||"9999";return x===y?String(a.name).localeCompare(String(b.name)):x.localeCompare(y)});
+    .sort(contactSorter());
   const tabs=["All",...STAGES].map(s=>`<button class="tab ${cTab===s?"on":""}" data-ctab="${esc(s)}">${esc(s)}<span class="c">${s==="All"?C.length:C.filter(c=>c.stage===s).length}</span></button>`).join("");
   const rows=list.map(c=>{const r=rel(c.nextFollowUp);return `<tr class="click" data-edit="contacts:${esc(c.id)}"><td class="b">${esc(household(c))}</td><td>${status(c.stage)}</td><td class="m">${esc(c.type||"")}</td><td><span class="when ${r.cls}">${c.nextFollowUp?r.txt:"None"}</span></td><td class="m">${phoneLink(c.phone)}</td><td class="m">${mailLink(c.email)}</td><td class="m">${esc(c.source||"")}</td><td>${laneTag(c)}</td></tr>`}).join("");
-  return `<section><div class="sh"><h2>Contacts</h2><span class="meta">Soonest follow-up first</span></div>
+  return `<section><div class="sh"><h2>Contacts</h2><span class="meta">Click a column name to sort</span></div>
     <div class="toolbar"><div class="tabs">${tabs}</div><select class="sel" id="ctype" aria-label="Contact type"><option value="All">All types</option>${TYPES.map(t=>`<option ${cType===t?"selected":""}>${esc(t)}</option>`).join("")}</select></div>
-    ${list.length?`<div class="tw"><table><thead><tr><th>Name</th><th>Stage</th><th>Type</th><th>Next follow-up</th><th>Phone</th><th>Email</th><th>Source</th><th>Postcards</th></tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="empty">${C.length?"No contacts match.":"No contacts yet. Click New contact to add your first."}</div>`}</section>`;
+    ${list.length?`<div class="tw"><table><thead><tr>${sortTh("name")}${sortTh("stage")}${sortTh("type")}${sortTh("next")}<th>Phone</th><th>Email</th>${sortTh("source")}${sortTh("lane")}</tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="empty">${C.length?"No contacts match.":"No contacts yet. Click New contact to add your first."}</div>`}</section>`;
 }
 
 function propsView(){
@@ -785,13 +807,21 @@ function refreshCl(){$("#clBox").innerHTML=checklistHtml(editing.rec)}
 /* ---------- events ---------- */
 document.addEventListener("click",e=>{
   if(e.target.closest('a[href^="mailto:"],a[href^="tel:"],a[href^="sms:"]'))return;
-  const t=e.target.closest("[data-act],[data-edit],[data-log],[data-rdone],[data-ctab],[data-ptab],[data-stage],[data-mdel],[data-seed],[data-pc],[data-pcl],[data-pclane]");if(!t)return;
+  const t=e.target.closest("[data-csort],[data-kpi],[data-act],[data-edit],[data-log],[data-rdone],[data-ctab],[data-ptab],[data-stage],[data-mdel],[data-seed],[data-pc],[data-pcl],[data-pclane]");if(!t)return;
   if(t.dataset.pc){const [cid,k]=t.dataset.pc.split("|");const c=contactById(cid);if(!c)return;const pc={...(c.postcards||{})};if(pc[k])delete pc[k];else pc[k]=true;c.postcards=pc;c.updatedAt=new Date().toISOString();persist();
     t.classList.toggle("sent",!!pc[k]);const months=rollingMonths(MONTHS_SHOWN).filter(m=>isPlanned(c,m.monthIndex));const ce=$("#cnt-"+CSS.escape(cid));if(ce)ce.textContent=months.filter(m=>pc[m.key]).length+"/"+months.length;
     const mk=activeMonthKey(),pl=state.contacts.filter(plannedThisMonth),s=pl.filter(x=>sentIn(x,mk)).length;if($("#pcLeft"))$("#pcLeft").textContent=pl.length-s;if($("#pcSent"))$("#pcSent").textContent=s+" of "+pl.length+" sent";
     if(pcNeedOnly&&!needsCard(c))setTimeout(render,250);return}
   if(t.dataset.pcl){pcLane=t.dataset.pcl;render();return}
   if(t.dataset.pclane){pcLane=t.dataset.pclane;location.hash="postcards";return}
+  if(t.dataset.csort){const k=t.dataset.csort;cSort=cSort.k===k?{k,dir:-cSort.dir}:{k,dir:1};render();return}
+  if(t.dataset.kpi){const k=t.dataset.kpi;
+    if(k==="reminders"){e.preventDefault();const el=$("#remSec");if(el)el.scrollIntoView({behavior:"smooth",block:"start"});return}
+    if(k==="contacts"){cTab="All";cType="All"}
+    else if(["Open","Under Contract","Closed"].includes(k))pTab=k;
+    query="";const q=$("#q");if(q)q.value="";
+    if(location.hash==="#"+t.getAttribute("href").slice(1)){e.preventDefault();render()}
+    return}
   if(t.dataset.log){e.stopPropagation();openLog(t.dataset.log);return}
   if(t.dataset.rdone){e.stopPropagation();const [cid,key,label]=t.dataset.rdone.split("|");const c=contactById(cid);if(!c)return;
     const done={...(c.done||{})};done[key]=today();const log=[{id:newId(),d:today(),type:"Note",note:label+": reached out"},...(c.log||[])];
